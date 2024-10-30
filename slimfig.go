@@ -10,8 +10,12 @@ import (
 	"github.com/HayoVanLoon/go-slimfig/resolver/json"
 )
 
-var resolvers = []resolver.Resolver{json.Resolver{}}
+var resolvers = []resolver.Resolver{json.Resolver}
 
+// SetResolvers sets the resolvers for configuration map references. Order
+// matters as a reference will be resolved by the first matching resolver.
+//
+// The default set consists of only the JSON file resolver.
 func SetResolvers(rs ...resolver.Resolver) {
 	resolvers = rs
 }
@@ -52,6 +56,21 @@ func reset() {
 	config = configMap{}
 }
 
+// Load loads the configuration scheme from the environment variable
+// 'XX_CONFIG', where 'XX' is the prefix.
+//
+// It will first load the configuration map(s) provided by the XX_CONFIG
+// variable. Each successive map is applied as a patch on the existing
+// configuration.
+//
+// After that, it will continue with adding other environment variables that
+// have this prefix. The key (after removing the prefix) is then used as a
+// JSON-path, where double underscores are translated into dots. For instance
+// "XX_service__host_name" becomes "service.host_name".
+//
+// It is advised to call this method only once. Subsequent calls will first
+// reset the configuration. When using custom resolvers, these must be set via
+// SetResolvers prior to calling this method.
 func Load(prefix string) error {
 	s := os.Getenv(prefix + "_CONFIG")
 	if s != "" {

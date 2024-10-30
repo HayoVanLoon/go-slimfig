@@ -6,20 +6,20 @@ import (
 	"os"
 	"strings"
 
-	"github.com/HayoVanLoon/go-slimfig/resolver"
+	res "github.com/HayoVanLoon/go-slimfig/resolver"
 	"github.com/HayoVanLoon/go-slimfig/shared"
 )
 
-var _ resolver.Resolver = *new(Resolver)
+var _ res.Resolver = *new(resolver)
 
-type Resolver struct{}
+type resolver struct{}
 
-func (r Resolver) Matches(reference string) bool {
+func (r resolver) Matches(reference string) bool {
 	// do not filter by file extension
 	return shared.MaybeFile(reference)
 }
 
-func (r Resolver) Resolve(reference string) (map[string]any, error) {
+func (r resolver) Resolve(reference string) (map[string]any, error) {
 	reference = strings.TrimPrefix(reference, shared.ProtocolFile)
 	f, err := os.Open(reference)
 	if err != nil {
@@ -29,3 +29,5 @@ func (r Resolver) Resolve(reference string) (map[string]any, error) {
 	m := make(map[string]any)
 	return m, json.NewDecoder(f).Decode(&m)
 }
+
+var Resolver res.Resolver = resolver{}
