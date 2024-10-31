@@ -2,26 +2,28 @@
 package json
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
 
 	res "github.com/HayoVanLoon/go-slimfig/resolver"
-	"github.com/HayoVanLoon/go-slimfig/shared"
 )
+
+const ProtocolFile = "file://"
 
 var _ res.Resolver = *new(resolver)
 
 type resolver struct{}
 
-func (r resolver) Matches(reference string) bool {
-	// do not filter by file extension
-	return shared.MaybeFile(reference)
+func (r resolver) Matches(string) bool {
+	// accept anything
+	return true
 }
 
-func (r resolver) Resolve(reference string) (map[string]any, error) {
-	reference = strings.TrimPrefix(reference, shared.ProtocolFile)
-	f, err := os.Open(reference)
+func (r resolver) Resolve(_ context.Context, reference string) (map[string]any, error) {
+	reference = strings.TrimPrefix(reference, ProtocolFile)
+	f, err := os.Open(reference) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}

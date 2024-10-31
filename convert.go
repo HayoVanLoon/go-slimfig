@@ -67,6 +67,10 @@ func toBool(a any) (bool, bool) {
 	return b, true
 }
 
+func toAny(a any) (any, bool) {
+	return a, true
+}
+
 func toSlice[T any](a any, conv func(a any) (T, bool)) ([]T, bool) {
 	if out, ok := a.([]T); ok {
 		return out, true
@@ -75,16 +79,12 @@ func toSlice[T any](a any, conv func(a any) (T, bool)) ([]T, bool) {
 	if v.Type().Kind() != reflect.Slice {
 		return nil, false
 	}
-	if v.Len() == 0 {
-		return nil, true
-	}
 	var out []T
-	v.Seq()(func(v reflect.Value) bool {
-		if v2, ok := conv(v.Interface()); ok {
+	for i := 0; i < v.Len(); i += 1 {
+		if v2, ok := conv(v.Index(i)); ok {
 			out = append(out, v2)
 		}
-		return true
-	})
+	}
 	return out, true
 }
 

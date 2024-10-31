@@ -1,6 +1,7 @@
 package slimfig_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,10 @@ func Test_Load(t *testing.T) {
 		envs      map[string]string
 		resolvers []resolver.Resolver
 	}
+	type args struct {
+		prefix     string
+		references []string
+	}
 	type want struct {
 		value map[string]any
 		err   require.ErrorAssertionFunc
@@ -25,11 +30,13 @@ func Test_Load(t *testing.T) {
 	tests := []struct {
 		name   string
 		fields fields
+		args   args
 		want   want
 	}{
 		{
 			"no config",
 			fields{},
+			args{},
 			want{
 				map[string]any{},
 				require.NoError,
@@ -40,6 +47,42 @@ func Test_Load(t *testing.T) {
 			fields{
 				configEnv: "ref1,ref2",
 				envs:      map[string]string{prefix_ + "foo": "123"},
+				resolvers: []resolver.Resolver{
+					TestResolver{
+						matchOn: "ref2",
+						data: map[string]any{
+							"foo": "yyy",
+							"a":   1,
+							"b":   2,
+							"c":   map[string]any{"e": 5},
+						},
+					},
+					TestResolver{
+						matchOn: "ref1",
+						data: map[string]any{
+							"foo": "xxx",
+							"a":   1,
+							"b":   "x",
+							"c":   map[string]any{"d": 4},
+						},
+					},
+				},
+			},
+			args{prefix: prefix},
+			want{
+				map[string]any{
+					"foo": "123",
+					"a":   1,
+					"b":   2,
+					"c":   map[string]any{"d": 4, "e": 5},
+				},
+				require.NoError,
+			},
+		},
+		{
+			"happy without env",
+			fields{
+				envs: map[string]string{prefix_ + "foo": "123"},
 				resolvers: []resolver.Resolver{
 					TestResolver{
 						matchOn: "ref1",
@@ -61,6 +104,7 @@ func Test_Load(t *testing.T) {
 					},
 				},
 			},
+			args{prefix: prefix, references: []string{"ref1", "ref2"}},
 			want{
 				map[string]any{
 					"foo": "123",
@@ -81,6 +125,7 @@ func Test_Load(t *testing.T) {
 					},
 				},
 			},
+			args{prefix: prefix},
 			want{
 				map[string]any{},
 				func(t require.TestingT, err error, _ ...interface{}) {
@@ -103,6 +148,7 @@ func Test_Load(t *testing.T) {
 					},
 				},
 			},
+			args{prefix: prefix},
 			want{
 				map[string]any{},
 				func(t require.TestingT, err error, _ ...interface{}) {
@@ -114,11 +160,14 @@ func Test_Load(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, clean(func(t *testing.T) {
+			ctx := context.Background()
 			setEnvs(tt.fields.envs)
-			setEnv(prefix_+slimfig.EnvSuffix, tt.fields.configEnv)
+			if tt.args.prefix != "" && tt.fields.configEnv != "" {
+				setEnv(tt.args.prefix+"_"+slimfig.EnvSuffix, tt.fields.configEnv)
+			}
 			slimfig.SetResolvers(tt.fields.resolvers...)
 
-			err := slimfig.Load(prefix)
+			err := slimfig.Load(ctx, tt.args.prefix, tt.args.references...)
 			tt.want.err(t, err)
 			actual := slimfig.Config()
 			require.Equal(t, tt.want.value, actual)
@@ -194,6 +243,20 @@ func Test_merge(t *testing.T) {
 				"a": 1,
 				"b": map[string]any{"f": "x"},
 				"c": map[string]any{"d": 4},
+			},
+		},
+		{
+			"handle maps with non-string keys",
+			args{
+				map[string]any{
+					"int": map[int]int{10: 1},
+				},
+				map[string]any{
+					"int": map[string]any{"20": "42"},
+				},
+			},
+			map[string]any{
+				"int": map[string]any{"10": 1, "20": "42"},
 			},
 		},
 	}
@@ -304,6 +367,7 @@ func TestSimpleGetters(t *testing.T) {
 		"bar_empty":  "",
 		"bla": map[string]any{
 			"moo": 2,
+			"int": map[int]int{10: 3},
 		},
 	}
 
@@ -321,9 +385,11 @@ func TestSimpleGetters(t *testing.T) {
 				func() any { return slimfig.String("bar_string", "fallback") },
 				func() any { return slimfig.String("bar_bool", "fallback") },
 				func() any { return slimfig.String("bla.moo", "fallback") },
+				func() any { return slimfig.String("bla.int.10", "fallback") },
+				func() any { return slimfig.String("bla.moo.10", "fallback") },
 				func() any { return slimfig.String("xxx", "fallback") },
 			},
-			[]any{"1", "1", "1", "true", "true", "2", "fallback"},
+			[]any{"1", "1", "1", "true", "true", "2", "3", "fallback", "fallback"},
 		},
 		{
 			"int",
@@ -395,6 +461,144 @@ func TestSimpleGetters(t *testing.T) {
 			for i := range tt.fns {
 				actual = append(actual, tt.fns[i]())
 			}
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestStringSlice(t *testing.T) {
+	config := map[string]any{
+		"string":  []string{"1", "2"},
+		"any":     []any{"1", float32(2)},
+		"not-map": -1,
+		"empty":   []any{},
+	}
+	fallback := []string{"fallback"}
+
+	tests := []struct {
+		name string
+		want []string
+	}{
+		{
+			"string",
+			[]string{"1", "2"},
+		},
+		{
+			"any",
+			[]string{"1", "2"},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.StringSlice(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestIntSlice(t *testing.T) {
+	config := map[string]any{
+		"int":       []int{1, 2},
+		"any":       []any{1, float32(2)},
+		"bad-value": []any{1, "oh noes"},
+		"not-map":   -1,
+		"empty":     []any{},
+	}
+	fallback := []int{-1}
+
+	tests := []struct {
+		name string
+		want []int
+	}{
+		{
+			"int",
+			[]int{1, 2},
+		},
+		{
+			"any",
+			[]int{1, 2},
+		},
+		{"bad value", fallback},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.IntSlice(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestFloatSlice(t *testing.T) {
+	config := map[string]any{
+		"float":   []float64{1, 2},
+		"any":     []float64{float64(1), 2},
+		"not-map": -1,
+		"empty":   []any{},
+	}
+	fallback := []float64{-1}
+
+	tests := []struct {
+		name string
+		want []float64
+	}{
+		{
+			"float",
+			[]float64{1, 2},
+		},
+		{
+			"any",
+			[]float64{1, 2},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.FloatSlice(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestBoolSlice(t *testing.T) {
+	config := map[string]any{
+		"bool":    []bool{true, false},
+		"any":     []any{"true", false},
+		"not-map": false,
+		"empty":   []any{},
+	}
+	fallback := []bool{true}
+
+	tests := []struct {
+		name string
+		want []bool
+	}{
+		{
+			"bool",
+			[]bool{true, false},
+		},
+		{
+			"any",
+			[]bool{true, false},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.BoolSlice(tt.name, fallback)
 			require.Equal(t, tt.want, actual)
 		}))
 	}
@@ -609,7 +813,7 @@ func (t TestResolver) Matches(reference string) bool {
 	return reference == t.matchOn
 }
 
-func (t TestResolver) Resolve(string) (map[string]any, error) {
+func (t TestResolver) Resolve(context.Context, string) (map[string]any, error) {
 	if t.err != nil {
 		return nil, t.err
 	}
