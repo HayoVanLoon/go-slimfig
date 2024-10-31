@@ -301,6 +301,7 @@ func TestSimpleGetters(t *testing.T) {
 		"bar_bool":   true,
 		"bar_false":  "false",
 		"bar_zero":   0,
+		"bar_empty":  "",
 		"bla": map[string]any{
 			"moo": 2,
 		},
@@ -368,9 +369,10 @@ func TestSimpleGetters(t *testing.T) {
 				func() any { return slimfig.Bool("bar_bool", false) },
 				func() any { return slimfig.Bool("bar_false", true) },
 				func() any { return slimfig.Bool("bar_zero", true) },
+				func() any { return slimfig.Bool("bar_empty", true) },
 				func() any { return slimfig.Bool("xxx", false) },
 			},
-			[]any{true, true, true, true, true, false, false, false},
+			[]any{true, true, true, true, true, false, false, true, false},
 		},
 		{
 			"any",
@@ -393,6 +395,157 @@ func TestSimpleGetters(t *testing.T) {
 			for i := range tt.fns {
 				actual = append(actual, tt.fns[i]())
 			}
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestStringMap(t *testing.T) {
+	config := map[string]any{
+		"string-string": map[string]string{"a": "1", "b": "2"},
+		"string-any":    map[string]any{"a": 1, "b": float32(2)},
+		"not-map":       -1,
+		"empty":         map[string]any{},
+	}
+	fallback := map[string]string{"fallback": "fallback"}
+
+	tests := []struct {
+		name string
+		want map[string]string
+	}{
+		{
+			"string-string",
+			map[string]string{"a": "1", "b": "2"},
+		},
+		{
+			"string-any",
+			map[string]string{"a": "1", "b": "2"},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.StringMap(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestIntMap(t *testing.T) {
+	config := map[string]any{
+		"string-int": map[string]int{"a": 1, "b": 2},
+		"string-any": map[string]any{"a": 1, "b": float32(2)},
+		"int-int":    map[int]int{10: 1, 20: 2},
+		"not-map":    -1,
+		"empty":      map[string]any{},
+	}
+	fallback := map[string]int{"fallback": 1}
+
+	tests := []struct {
+		name string
+		want map[string]int
+	}{
+		{
+			"string-int",
+			map[string]int{"a": 1, "b": 2},
+		},
+		{
+			"string-any",
+			map[string]int{"a": 1, "b": 2},
+		},
+		{
+			"int-int",
+			map[string]int{"10": 1, "20": 2},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.IntMap(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestFloatMap(t *testing.T) {
+	config := map[string]any{
+		"string-float": map[string]float64{"a": 1, "b": 2},
+		"string-any":   map[string]any{"a": 1, "b": float32(2)},
+		"float-float":  map[float64]float64{10: 1, 20: 2},
+		"not-map":      -1,
+		"empty":        map[string]any{},
+	}
+	fallback := map[string]float64{"fallback": 1}
+
+	tests := []struct {
+		name string
+		want map[string]float64
+	}{
+		{
+			"string-float",
+			map[string]float64{"a": 1, "b": 2},
+		},
+		{
+			"string-any",
+			map[string]float64{"a": 1, "b": 2},
+		},
+		{
+			"float-float",
+			map[string]float64{"10": 1, "20": 2},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.FloatMap(tt.name, fallback)
+			require.Equal(t, tt.want, actual)
+		}))
+	}
+}
+
+func TestBoolMap(t *testing.T) {
+	config := map[string]any{
+		"string-bool": map[string]bool{"a": true, "b": false},
+		"string-any":  map[string]any{"a": false, "b": float32(1)},
+		"bool-bool":   map[bool]bool{true: false, false: true},
+		"not-map":     -1,
+		"empty":       map[string]any{},
+	}
+	fallback := map[string]bool{"fallback": true}
+
+	tests := []struct {
+		name string
+		want map[string]bool
+	}{
+		{
+			"string-bool",
+			map[string]bool{"a": true, "b": false},
+		},
+		{
+			"string-any",
+			map[string]bool{"a": false, "b": true},
+		},
+		{
+			"bool-bool",
+			map[string]bool{"true": false, "false": true},
+		},
+		{"not-map", fallback},
+		{"fallback", fallback},
+		{"empty", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, clean(func(t *testing.T) {
+			slimfig.SetConfig(config)
+			actual := slimfig.BoolMap(tt.name, fallback)
 			require.Equal(t, tt.want, actual)
 		}))
 	}

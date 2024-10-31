@@ -3,7 +3,6 @@ package slimfig
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/HayoVanLoon/go-slimfig/resolver"
@@ -15,16 +14,26 @@ var resolvers = []resolver.Resolver{json.Resolver}
 // SetResolvers sets the resolvers for configuration map references. Order
 // matters as a reference will be resolved by the first matching resolver.
 //
-// The default set consists of only the JSON file resolver.
+// The default set consists of only the JSON file resolver. When using custom
+// resolvers, these must be set using this function before calling Load or
+// LoadScheme.
 func SetResolvers(rs ...resolver.Resolver) {
 	resolvers = rs
 }
 
+// EnvSuffix suffix added to the prefix to build the configuration scheme
+// environment variable, i.e.:
+//
+//	scheme := os.Getenv(prefix + "_" + EnvSuffix)
 const EnvSuffix = "CONFIG"
 
 type configMap map[string]any
 
-func (m configMap) get(key []string) (any, bool) {
+func (m configMap) get(key string) (any, bool) {
+	return m.get2(strings.Split(key, "."))
+}
+
+func (m configMap) get2(key []string) (any, bool) {
 	if len(key) == 0 {
 		return nil, false
 	}
@@ -39,7 +48,7 @@ func (m configMap) get(key []string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	return configMap(m2).get(key[1:])
+	return configMap(m2).get2(key[1:])
 }
 
 func (m configMap) getPointer(key string) (*any, bool) {
@@ -57,24 +66,30 @@ func reset() {
 }
 
 // Load loads the configuration scheme from the environment variable
-// 'XX_CONFIG', where 'XX' is the prefix.
+// 'XX_CONFIG', where 'XX' is the given prefix. Initialisation follows an
+// all-or-nothing principle, so following an error, the configuration will
+// remain uninitialised.
 //
-// It will first load the configuration map(s) provided by the XX_CONFIG
-// variable. Each successive map is applied as a patch on the existing
-// configuration.
+// The configuration scheme is a list of references to configuration maps,
+// where each subsequent map modifies the configuration by adding or
+// overwriting values.
 //
-// After that, it will continue with adding other environment variables that
-// have this prefix. The key (after removing the prefix) is then used as a
-// JSON-path, where double underscores are translated into dots. For instance
-// "XX_service__host_name" becomes "service.host_name".
+// After that, it will look for other environment variables with the given
+// prefix. Their names are than translated into JSON-path(-like) keys by:
+//   - removing the prefix
+//   - translating double underscores into dots
 //
-// It is advised to call this method only once. Subsequent calls will first
-// reset the configuration. When using custom resolvers, these must be set via
-// SetResolvers prior to calling this method.
+// For instance, given prefix "XX", "XX_service__host_name" becomes "service.host_name".
+//
+// This method should only be called once. Subsequent calls will always reset
+// the configuration.
+//
+// When using custom resolvers, these must be set via SetResolvers prior to
+// calling this method.
 func Load(prefix string) error {
-	s := os.Getenv(prefix + "_CONFIG")
+	s := os.Getenv(prefix + "_" + EnvSuffix)
 	if s != "" {
-		if err := loadFrom(strings.Split(s, ",")); err != nil {
+		if err := LoadScheme(strings.Split(s, ",")); err != nil {
 			return err
 		}
 	}
@@ -82,10 +97,22 @@ func Load(prefix string) error {
 	return nil
 }
 
-func loadFrom(refs []string) error {
+// LoadScheme loads the provided configuration scheme. Unlike Load, it does not
+// check inspect environment variables. Initialisation follows an
+// all-or-nothing principle, so following an error, the configuration will
+// remain uninitialised.
+//
+// The configuration scheme is a list of references to configuration maps,
+// where each subsequent map modifies the configuration by adding or
+// overwriting values.
+//
+// It is advised to call this method only once. Subsequent calls will first
+// reset the configuration. When using custom resolvers, these must be set via
+// SetResolvers prior to calling this method.
+func LoadScheme(references []string) error {
 	reset()
-	rs := make([]resolver.Resolver, len(refs))
-	for _, ref := range refs {
+	rs := make([]resolver.Resolver, len(references))
+	for _, ref := range references {
 		ref = strings.TrimSpace(ref)
 		found := false
 		for i, r := range resolvers {
@@ -99,13 +126,15 @@ func loadFrom(refs []string) error {
 		}
 	}
 
+	out := configMap{}
 	for i := range rs {
-		cfg, err := rs[i].Resolve(refs[i])
+		cfg, err := rs[i].Resolve(references[i])
 		if err != nil {
-			return fmt.Errorf("error resolving %q: %w", refs[i], err)
+			return fmt.Errorf("error resolving %q: %w", references[i], err)
 		}
-		merge(&config, cfg)
+		merge(&out, cfg)
 	}
+	config = out
 	return nil
 }
 
@@ -159,18 +188,25 @@ func addEnv(old *configMap, k string, v string) {
 	merge(old, m)
 }
 
+// String looks up a configuration value as a string. If the stored value is
+// not a string, it will use the value's standard string representation ("%v").
+//
+// Returns the fallback when the lookup fails.
 func String(key, fallback string) string {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
 	return toString(a)
 }
 
+// Int looks up a configuration value as an integer. If the stored value is not
+// an integer, some limited attempts will be made to convert or parse it into
+// one.
+//
+// Returns the fallback when the lookup fails or the value cannot be converted.
 func Int(key string, fallback int) int {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
@@ -181,9 +217,13 @@ func Int(key string, fallback int) int {
 	return i
 }
 
+// Float looks up a configuration value as a floating point. If the stored
+// value is not a floating point, some limited attempts will be made to convert
+// or parse it into one.
+//
+// Returns the fallback when the lookup fails or the value cannot be converted.
 func Float(key string, fallback float64) float64 {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
@@ -194,9 +234,13 @@ func Float(key string, fallback float64) float64 {
 	return f
 }
 
+// Bool looks up a configuration value as a boolean. If the stored value is not
+// a boolean, an attempt will be made to parse it into one using the rules
+// declared by strconv.ParseBool.
+//
+// Returns the fallback when the lookup fails or the value cannot be converted.
 func Bool(key string, fallback bool) bool {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
@@ -207,9 +251,10 @@ func Bool(key string, fallback bool) bool {
 	return b
 }
 
+// Any looks up a configuration value. Returns the fallback when the lookup
+// fails.
 func Any(key string, fallback any) any {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
@@ -217,236 +262,97 @@ func Any(key string, fallback any) any {
 }
 
 func StringSlice(key string, fallback []string) []string {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case []string:
-		return x
-	case []any:
-		var out []string
-		for i := range x {
-			out = append(out, toString(x[i]))
-		}
-		return out
-	default:
+	out, ok := toSlice(a, toString2)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func IntSlice(key string, fallback []int) []int {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case []int:
-		return x
-	case []any:
-		var out []int
-		for i := range x {
-			if j, ok := toInt(x[i]); ok {
-				out = append(out, j)
-			}
-		}
-		return out
-	default:
+	out, ok := toSlice(a, toInt)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func FloatSlice(key string, fallback []float64) []float64 {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case []float64:
-		return x
-	case []any:
-		var out []float64
-		for i := range x {
-			if j, ok := toFloat64(x[i]); ok {
-				out = append(out, j)
-			}
-		}
-		return out
-	default:
+	out, ok := toSlice(a, toFloat64)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func BoolSlice(key string, fallback []bool) []bool {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case []bool:
-		return x
-	case []any:
-		var out []bool
-		for i := range x {
-			if j, ok := toBool(x[i]); ok {
-				out = append(out, j)
-			}
-		}
-		return out
-	default:
+	out, ok := toSlice(a, toBool)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func StringMap(key string, fallback map[string]string) map[string]string {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case map[string]string:
-		return x
-	case map[string]any:
-		m := make(map[string]string)
-		for k, v := range x {
-			m[k] = toString(v)
-		}
-		return m
-	default:
+	out, ok := toMap(a, toString2)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func IntMap(key string, fallback map[string]int) map[string]int {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case map[string]int:
-		return x
-	case map[string]any:
-		m := make(map[string]int)
-		for k, v := range x {
-			if i, ok := toInt(v); ok {
-				m[k] = i
-			}
-		}
-		return m
-	default:
+	out, ok := toMap(a, toInt)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func FloatMap(key string, fallback map[string]float64) map[string]float64 {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case map[string]float64:
-		return x
-	case map[string]float32:
-		m := make(map[string]float64)
-		for k, v := range x {
-			m[k] = float64(v)
-		}
-		return m
-	case map[string]any:
-		m := make(map[string]float64)
-		for k, v := range x {
-			if i, ok := toFloat64(v); ok {
-				m[k] = i
-			}
-		}
-		return m
-	default:
+	out, ok := toMap(a, toFloat64)
+	if !ok {
 		return fallback
 	}
+	return out
 }
 
 func BoolMap(key string, fallback map[string]bool) map[string]bool {
-	parts := strings.Split(key, ".")
-	a, ok := config.get(parts)
+	a, ok := config.get(key)
 	if !ok {
 		return fallback
 	}
-	switch x := a.(type) {
-	case map[string]bool:
-		return x
-	case map[string]any:
-		m := make(map[string]bool)
-		for k, v := range x {
-			if i, ok := toBool(v); ok {
-				m[k] = i
-			}
-		}
-		return m
-	default:
+	out, ok := toMap(a, toBool)
+	if !ok {
 		return fallback
 	}
-}
-
-func toString(a any) string {
-	if s, ok := a.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", a)
-}
-
-func toInt(a any) (int, bool) {
-	// uint and similar might cause overflows
-	switch x := a.(type) {
-	case int:
-		return x, true
-	case int8:
-		return int(x), true
-	case int16:
-		return int(x), true
-	case int32:
-		return int(x), true
-	case int64:
-		return int(x), true
-	case float32:
-		return int(x), true
-	case float64:
-		return int(x), true
-	}
-	i, err := strconv.Atoi(toString(a))
-	if err != nil {
-		return 0, false
-	}
-	return i, true
-}
-
-func toFloat64(a any) (float64, bool) {
-	switch x := a.(type) {
-	case float32:
-		return float64(x), true
-	case float64:
-		return x, true
-	}
-	f, err := strconv.ParseFloat(toString(a), 64)
-	if err != nil {
-		return 0, false
-	}
-	return f, true
-}
-
-func toBool(a any) (bool, bool) {
-	if b, ok := a.(bool); ok {
-		return b, true
-	}
-	b, err := strconv.ParseBool(fmt.Sprintf("%v", a))
-	if err != nil {
-		return false, false
-	}
-	return b, true
+	return out
 }
