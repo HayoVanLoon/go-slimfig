@@ -24,21 +24,31 @@ func (r resolver) Matches(reference string) bool {
 	return validName(reference) != ""
 }
 
+// JSONResolver returns a Secret Manager resolver for secrets containing JSON
+// objects.
 func JSONResolver(ctx context.Context) (res.Resolver, error) {
 	return Resolver(ctx, json.Unmarshal)
 }
 
+// Resolver returns a Secret Manager resolver for secrets that can be
+// unmarshalled into maps using the provided function.
 func Resolver(ctx context.Context, unmarshal base.Unmarshaller) (res.Resolver, error) {
 	c, err := secretmanager.NewClient(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return WithClient(c, unmarshal), nil
+}
+
+// WithClient returns a Secret Manager resolver with the given client and
+// unmarshaller.
+func WithClient(c *secretmanager.Client, unmarshal base.Unmarshaller) res.Resolver {
 	return resolver{
 		Resolver: base.Resolver{
 			Fetch:     fetchFn(c),
 			Unmarshal: unmarshal,
 		},
-	}, nil
+	}
 }
 
 func fetchFn(c *secretmanager.Client) base.Fetcher {

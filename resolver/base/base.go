@@ -6,10 +6,16 @@ import (
 )
 
 type (
-	Fetcher      func(ctx context.Context, reference string) ([]byte, error)
+	// A Fetcher fetches the data indicated by the reference.
+	Fetcher func(ctx context.Context, reference string) ([]byte, error)
+	// An Unmarshaller unmarshalls bytes into a map[string]any. Its second
+	// parameter type is any only so common Unmarshallers (like json.Unmarshal)
+	// can be used without wrapping.
 	Unmarshaller func([]byte, any) error
 )
 
+// A Resolver partially implements a Resolver. Matching will have to be
+// implemented separately.
 type Resolver struct {
 	Fetch     Fetcher
 	Unmarshal Unmarshaller
