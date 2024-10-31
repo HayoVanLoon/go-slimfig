@@ -1,11 +1,12 @@
-// Package json provides a Slimfig resolver for JSON files.
-package json
+// Package yaml provides a Slimfig resolver for YAML files.
+package yaml
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	res "github.com/HayoVanLoon/go-slimfig/resolver"
 )
@@ -35,14 +36,14 @@ func (r resolver) Resolve(_ context.Context, reference string) (map[string]any, 
 	}
 	defer func() { _ = f.Close() }()
 	m := make(map[string]any)
-	return m, json.NewDecoder(f).Decode(&m)
+	return m, yaml.NewDecoder(f).Decode(&m)
 }
 
-// Resolver returns a resolver for JSON files. By default, it only matches
-// references ending in ".json".
+// Resolver returns a resolver for YAML files. By default, it only matches
+// references ending in ".yaml".
 func Resolver(extensions ...string) res.Resolver {
 	if len(extensions) == 0 {
-		extensions = []string{".json"}
+		extensions = []string{".yaml"}
 	}
 	return resolver{
 		extensions: extensions,

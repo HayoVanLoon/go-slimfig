@@ -1,0 +1,5 @@
+key: value from yaml
+map_in_yaml:
+  i_am_a_list:
+    - foo
+    - bar

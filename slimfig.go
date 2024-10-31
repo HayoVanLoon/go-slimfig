@@ -12,7 +12,7 @@ import (
 	jsonresolver "github.com/HayoVanLoon/go-slimfig/resolver/json"
 )
 
-var resolvers = []resolver.Resolver{jsonresolver.Resolver}
+var resolvers = []resolver.Resolver{jsonresolver.Resolver()}
 
 // SetResolvers sets the resolvers for configuration map references. Order
 // matters as a reference will be resolved by the first matching resolver.

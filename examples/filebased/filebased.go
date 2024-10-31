@@ -7,20 +7,15 @@ import (
 	"os"
 
 	"github.com/HayoVanLoon/go-slimfig"
-	gcp "github.com/HayoVanLoon/go-slimfig/resolver/gcp/secret"
 	"github.com/HayoVanLoon/go-slimfig/resolver/json"
+	"github.com/HayoVanLoon/go-slimfig/resolver/yaml"
 )
 
 func initConfig(references []string) {
 	ctx := context.Background()
 
-	secretManager, err := gcp.JSONResolver(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	slimfig.SetResolvers(secretManager, json.Resolver())
-	if err = slimfig.Load(ctx, "EX", references...); err != nil {
+	slimfig.SetResolvers(yaml.Resolver(), json.Resolver())
+	if err := slimfig.Load(ctx, "EX", references...); err != nil {
 		log.Fatal(err)
 	}
 }
