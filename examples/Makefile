@@ -24,4 +24,13 @@ ifndef SECRET_ID
 endif
 	$(GO) run gcp/*.go \
 		./config.json \
-		projects/$(PROJECT_ID)/secrets/$(SECRET_ID)
+		'gcp-secretmanager://projects/$(PROJECT_ID)/secrets/$(SECRET_ID)'
+
+# Uses the AWS Secrets Manager resolver for one of the references.
+example-aws:
+ifndef SECRET_ID
+	$(error missing SECRET_ID)
+endif
+	$(GO) run aws/*.go \
+		./config.json \
+		'aws-secretsmanager://$(SECRET_ID)'

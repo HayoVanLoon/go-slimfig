@@ -66,7 +66,14 @@ func fetchFn(c *secretmanager.Client) base.Fetcher {
 	}
 }
 
+const Scheme = "gcp-secretmanager"
+
 func validName(s string) string {
+	scheme, s, _ := strings.Cut(s, "://")
+	if scheme != Scheme {
+		return ""
+	}
+
 	xs := strings.Split(s, "/")
 	switch len(xs) {
 	case 4:
